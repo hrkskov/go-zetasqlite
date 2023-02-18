@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 type DayOfWeek string
@@ -1091,6 +1092,21 @@ func parseTimeFormat(formatStr, targetStr string, typ TimeFormatType) (*time.Tim
 				return nil, fmt.Errorf("invalid time format")
 			}
 			c = format[formatIdx]
+
+			if c == 'E' {
+				formatIdx++
+				if formatIdx >= len(format) {
+					return nil, fmt.Errorf("invalid time format")
+				}
+				progress, formatProgress, err := parseExtensionFormat(target[targetIdx:], format[formatIdx:], ret)
+				if err != nil {
+					return nil, err
+				}
+				targetIdx += progress
+				formatIdx += formatProgress
+				continue
+			}
+
 			info := formatPatternMap[c]
 			if info == nil {
 				return nil, fmt.Errorf("unexpected format type %%%c", c)
@@ -1146,4 +1162,170 @@ func formatTime(formatStr string, t *time.Time, typ TimeFormatType) (string, err
 		}
 	}
 	return string(ret), nil
+}
+
+func parseSubSeconds(text []rune, maxDigits int) (int, int, error) {
+	var (
+		nd  int
+		ret int
+	)
+	if maxDigits < 0 || maxDigits >= 10 {
+		return 0, 0, fmt.Errorf("unexpected sub seconds format")
+	}
+	for i := 0; i < maxDigits; i++ {
+		if unicode.IsDigit(text[i]) {
+			tn, err := strconv.Atoi(string(text[i]))
+			if err != nil {
+				return 0, 0, fmt.Errorf("unexpected sub seconds format: %w", err)
+			}
+			ret *= 10
+			ret += tn
+			nd += 1
+		} else {
+			break
+		}
+		if nd == maxDigits {
+			break
+		}
+	}
+	return ret, nd, nil
+}
+
+func parseExtensionFormat(target []rune, format []rune, t *time.Time) (int, int, error) {
+	var (
+		targetIdx int
+		formatIdx int
+	)
+	if format[formatIdx] == 'z' {
+		formatIdx++
+		if target[targetIdx] == 'Z' {
+			targetIdx++
+			*t = time.Date(
+				t.Year(),
+				t.Month(),
+				t.Day(),
+				t.Hour(),
+				t.Minute(),
+				t.Second(),
+				t.Nanosecond(),
+				time.UTC,
+			)
+			return formatIdx, targetIdx, nil
+		}
+
+		if target[targetIdx] == '+' || target[targetIdx] == '-' {
+			s := target[targetIdx]
+			targetIdx++
+			fmtLen := len("00:00")
+			if len(target[targetIdx:]) != fmtLen {
+				return 0, 0, fmt.Errorf("unexpected offset format")
+			}
+			splitted := strings.Split(string(target[targetIdx:]), ":")
+			if len(splitted) != 2 {
+				return 0, 0, fmt.Errorf("unexpected offset format")
+			}
+			hour := splitted[0]
+			minute := splitted[1]
+			if len(hour) != 2 || len(minute) != 2 {
+				return 0, 0, fmt.Errorf("unexpected hour:minute format")
+			}
+			h, err := strconv.ParseInt(hour, 10, 64)
+			if err != nil {
+				return 0, 0, fmt.Errorf("unexpected hour:minute format: %w", err)
+			}
+			m, err := strconv.ParseInt(minute, 10, 64)
+			if err != nil {
+				return 0, 0, fmt.Errorf("unexpected hour:minute format: %w", err)
+			}
+			hs := int(h*60*60 + m*60)
+			if s == '-' {
+				hs *= -1
+			}
+			*t = time.Date(
+				t.Year(),
+				t.Month(),
+				t.Day(),
+				t.Hour(),
+				t.Minute(),
+				t.Second(),
+				t.Nanosecond(),
+				time.FixedZone("", hs),
+			)
+			targetIdx += fmtLen
+			return targetIdx, formatIdx, nil
+		}
+
+		return 0, 0, fmt.Errorf("unexpected offset format")
+	} else if format[formatIdx] == '4' && format[formatIdx+1] == 'Y' {
+		formatIdx += 2
+		p, err := yearParser(target[targetIdx:], t)
+		if err != nil {
+			return 0, 0, fmt.Errorf("unexpected full year format: %w", err)
+		}
+		targetIdx += p
+
+		return targetIdx, formatIdx, nil
+	} else if format[formatIdx] == '*' && format[formatIdx+1] == 'S' {
+		formatIdx += 2
+		sp, err := secondParser(target, t)
+		if err != nil {
+			return 0, 0, fmt.Errorf("unexpected second format: %w", err)
+		}
+		targetIdx += sp
+		if target[targetIdx] != '.' {
+			return 0, 0, fmt.Errorf("unexpected second format")
+		}
+		targetIdx += 1
+		ss, ssp, err := parseSubSeconds(target[targetIdx:], 9)
+		if err != nil {
+			return 0, 0, fmt.Errorf("unexpected nano seconds format")
+		}
+		targetIdx += ssp
+		*t = time.Date(
+			t.Year(),
+			t.Month(),
+			t.Day(),
+			t.Hour(),
+			t.Minute(),
+			t.Second(),
+			ss,
+			t.Location(),
+		)
+
+		return targetIdx, formatIdx, nil
+	} else if unicode.IsDigit(format[formatIdx]) && format[formatIdx+1] == 'S' {
+		n, err := strconv.ParseInt(string(format[formatIdx]), 10, 64)
+		formatIdx += 2
+		sp, err := secondParser(target, t)
+		if err != nil {
+			return 0, 0, fmt.Errorf("unexpected second format: %w", err)
+		}
+		targetIdx += sp
+		if target[targetIdx] != '.' {
+			return 0, 0, fmt.Errorf("unexpected second format")
+		}
+		targetIdx += 1
+		if err != nil {
+			return 0, 0, fmt.Errorf("unexpected sub seconds format: %w", err)
+		}
+		ss, ssp, err := parseSubSeconds(target[targetIdx:], int(n))
+		if err != nil {
+			return 0, 0, fmt.Errorf("unexpected sub seconds format: %w", err)
+		}
+		targetIdx += ssp
+		*t = time.Date(
+			t.Year(),
+			t.Month(),
+			t.Day(),
+			t.Hour(),
+			t.Minute(),
+			t.Second(),
+			ss,
+			t.Location(),
+		)
+
+		return targetIdx, formatIdx, nil
+	}
+
+	return 0, 0, fmt.Errorf("unexpected extended format")
 }
