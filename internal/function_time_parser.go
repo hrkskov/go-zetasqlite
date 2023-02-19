@@ -1098,7 +1098,7 @@ func parseTimeFormat(formatStr, targetStr string, typ TimeFormatType) (*time.Tim
 				if formatIdx >= len(format) {
 					return nil, fmt.Errorf("invalid time format")
 				}
-				progress, formatProgress, err := parseExtensionFormat(target[targetIdx:], format[formatIdx:], ret)
+				progress, formatProgress, err := parseCombinationFormat(target[targetIdx:], format[formatIdx:], typ, ret)
 				if err != nil {
 					return nil, err
 				}
@@ -1191,12 +1191,15 @@ func parseSubSeconds(text []rune, maxDigits int) (int, int, error) {
 	return ret, nd, nil
 }
 
-func parseExtensionFormat(target []rune, format []rune, t *time.Time) (int, int, error) {
+func parseCombinationFormat(target []rune, format []rune, typ TimeFormatType, t *time.Time) (int, int, error) {
 	var (
 		targetIdx int
 		formatIdx int
 	)
 	if format[formatIdx] == 'z' {
+		if typ != FormatTypeTimestamp {
+			return 0, 0, fmt.Errorf("unexpected format type")
+		}
 		formatIdx++
 		if target[targetIdx] == 'Z' {
 			targetIdx++
@@ -1255,17 +1258,23 @@ func parseExtensionFormat(target []rune, format []rune, t *time.Time) (int, int,
 			return targetIdx, formatIdx, nil
 		}
 
-		return 0, 0, fmt.Errorf("unexpected offset format")
+		return 0, 0, fmt.Errorf("unexpected offset format: %%%c", target[targetIdx])
 	} else if format[formatIdx] == '4' && format[formatIdx+1] == 'Y' {
+		if typ != FormatTypeTime && typ != FormatTypeDatetime && typ != FormatTypeTimestamp {
+			return 0, 0, fmt.Errorf("unexpected format type")
+		}
 		formatIdx += 2
 		p, err := yearParser(target[targetIdx:], t)
 		if err != nil {
-			return 0, 0, fmt.Errorf("unexpected full year format: %w", err)
+			return 0, 0, fmt.Errorf("unexpected year format: %w", err)
 		}
 		targetIdx += p
 
 		return targetIdx, formatIdx, nil
 	} else if format[formatIdx] == '*' && format[formatIdx+1] == 'S' {
+		if typ != FormatTypeTime && typ != FormatTypeDatetime && typ != FormatTypeTimestamp {
+			return 0, 0, fmt.Errorf("unexpected format type")
+		}
 		formatIdx += 2
 		sp, err := secondParser(target, t)
 		if err != nil {
@@ -1273,12 +1282,12 @@ func parseExtensionFormat(target []rune, format []rune, t *time.Time) (int, int,
 		}
 		targetIdx += sp
 		if target[targetIdx] != '.' {
-			return 0, 0, fmt.Errorf("unexpected second format")
+			return 0, 0, fmt.Errorf("unexpected sub second format: %%%c", target[targetIdx])
 		}
 		targetIdx += 1
 		ss, ssp, err := parseSubSeconds(target[targetIdx:], 9)
 		if err != nil {
-			return 0, 0, fmt.Errorf("unexpected nano seconds format")
+			return 0, 0, fmt.Errorf("unexpected sub second format: %w", err)
 		}
 		targetIdx += ssp
 		*t = time.Date(
@@ -1294,6 +1303,9 @@ func parseExtensionFormat(target []rune, format []rune, t *time.Time) (int, int,
 
 		return targetIdx, formatIdx, nil
 	} else if unicode.IsDigit(format[formatIdx]) && format[formatIdx+1] == 'S' {
+		if typ != FormatTypeTime && typ != FormatTypeDatetime && typ != FormatTypeTimestamp {
+			return 0, 0, fmt.Errorf("unexpected format type")
+		}
 		n, err := strconv.ParseInt(string(format[formatIdx]), 10, 64)
 		formatIdx += 2
 		sp, err := secondParser(target, t)
@@ -1302,15 +1314,12 @@ func parseExtensionFormat(target []rune, format []rune, t *time.Time) (int, int,
 		}
 		targetIdx += sp
 		if target[targetIdx] != '.' {
-			return 0, 0, fmt.Errorf("unexpected second format")
+			return 0, 0, fmt.Errorf("unexpected sub second format: %%%c", target[targetIdx])
 		}
 		targetIdx += 1
-		if err != nil {
-			return 0, 0, fmt.Errorf("unexpected sub seconds format: %w", err)
-		}
 		ss, ssp, err := parseSubSeconds(target[targetIdx:], int(n))
 		if err != nil {
-			return 0, 0, fmt.Errorf("unexpected sub seconds format: %w", err)
+			return 0, 0, fmt.Errorf("unexpected sub second format: %w", err)
 		}
 		targetIdx += ssp
 		*t = time.Date(
@@ -1327,5 +1336,5 @@ func parseExtensionFormat(target []rune, format []rune, t *time.Time) (int, int,
 		return targetIdx, formatIdx, nil
 	}
 
-	return 0, 0, fmt.Errorf("unexpected extended format")
+	return 0, 0, fmt.Errorf("unexpected format: %s", string(format[formatIdx:]))
 }
