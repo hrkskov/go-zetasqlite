@@ -1215,7 +1215,6 @@ func parseCombinationFormat(target []rune, format []rune, typ TimeFormatType, t 
 			)
 			return formatIdx, targetIdx, nil
 		}
-
 		if target[targetIdx] == '+' || target[targetIdx] == '-' {
 			s := target[targetIdx]
 			targetIdx++
@@ -1257,7 +1256,6 @@ func parseCombinationFormat(target []rune, format []rune, typ TimeFormatType, t 
 			targetIdx += fmtLen
 			return targetIdx, formatIdx, nil
 		}
-
 		return 0, 0, fmt.Errorf("unexpected offset format: %%%c", target[targetIdx])
 	} else if format[formatIdx] == '4' && format[formatIdx+1] == 'Y' {
 		if typ != FormatTypeTime && typ != FormatTypeDatetime && typ != FormatTypeTimestamp {
@@ -1269,7 +1267,6 @@ func parseCombinationFormat(target []rune, format []rune, typ TimeFormatType, t 
 			return 0, 0, fmt.Errorf("unexpected year format: %w", err)
 		}
 		targetIdx += p
-
 		return targetIdx, formatIdx, nil
 	} else if format[formatIdx] == '*' && format[formatIdx+1] == 'S' {
 		if typ != FormatTypeTime && typ != FormatTypeDatetime && typ != FormatTypeTimestamp {
@@ -1300,7 +1297,6 @@ func parseCombinationFormat(target []rune, format []rune, typ TimeFormatType, t 
 			ss,
 			t.Location(),
 		)
-
 		return targetIdx, formatIdx, nil
 	} else if unicode.IsDigit(format[formatIdx]) && format[formatIdx+1] == 'S' {
 		if typ != FormatTypeTime && typ != FormatTypeDatetime && typ != FormatTypeTimestamp {
@@ -1332,9 +1328,7 @@ func parseCombinationFormat(target []rune, format []rune, typ TimeFormatType, t 
 			ss,
 			t.Location(),
 		)
-
 		return targetIdx, formatIdx, nil
 	}
-
 	return 0, 0, fmt.Errorf("unexpected format: %s", string(format[formatIdx:]))
 }
